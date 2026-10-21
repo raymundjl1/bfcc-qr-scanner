@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>BFCC QR Boarding Scanner</title>
+<style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#14213d;background:#f3f6fa}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;max-width:680px;margin-inline:auto}
+header{background:#073b7a;color:white;border-radius:14px;padding:18px;text-align:center}
+h1{font-size:1.4rem;margin:0 0 8px}
+p{line-height:1.5}
+.card{background:white;border:1px solid #dce3ec;border-radius:14px;padding:16px;margin-top:16px}
+button{border:0;border-radius:9px;background:#073b7a;color:white;font-weight:700;padding:13px 16px;font-size:1rem;margin:5px 5px 5px 0}
+button.secondary{background:#e8edf4;color:#073b7a}
+#reader{width:100%;max-width:520px;margin:12px auto}
+#status{padding:12px;border-radius:9px;background:#fff6dd;color:#805400;overflow-wrap:anywhere}
+.small{font-size:.9rem;color:#667085}
+</style>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>BFCC QR Boarding Scanner</h1>
+  <p style="margin:0">Salzburg–Hallstatt Benefit Day Tour · 21 November 2026</p>
+</header>
+<section class="card">
+  <p>Allow camera access, then point the rear camera at a passenger's BFCC boarding-pass QR code. The scanned token will be returned to the organizer dashboard for validation.</p>
+  <button id="start">Start camera</button>
+  <button id="stop" class="secondary">Stop camera</button>
+  <div id="reader"></div>
+  <div id="status" role="status">Ready. Tap Start camera to begin.</div>
+  <p class="small">This page only reads the QR token. Boarding is recorded by the BFCC Apps Script dashboard.</p>
+</section>
+<script>
+let scanner = null;
+let handlingScan = false;
+const statusEl = document.getElementById('status');
+function status(message, isError=false) {
+  statusEl.textContent = message;
+  statusEl.style.background = isError ? '#fff0ef' : '#e9f8ee';
+  statusEl.style.color = isError ? '#a11d1d' : '#17663a';
+}
+async function stopCamera() {
+  try {
+    if (scanner && scanner.isScanning) await scanner.stop();
+  } catch (e) {}
+}
+async function startCamera() {
+  try {
+    if (!window.isSecureContext) throw new Error('Camera access requires a secure HTTPS page.');
+    if (typeof Html5Qrcode === 'undefined') throw new Error('Scanner library did not load. Check your internet connection and reload.');
+    handlingScan = false;
+    if (!scanner) scanner = new Html5Qrcode('reader');
+    await scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+      async decodedText => {
+        if (handlingScan) return;
+        handlingScan = true;
+        await stopCamera();
+        if (!window.opener || window.opener.closed) {
+          status('QR read, but the organizer dashboard window is not connected. Close this page and open the scanner again from the dashboard.', true);
+          handlingScan = false;
+          return;
+        }
+        // The organizer page validates this message's origin and this exact popup window.
+        window.opener.postMessage({ type: 'BFCC_QR_TOKEN', token: decodedText }, window.location.origin);
+        status('QR scanned. Returning token to the organizer dashboard…');
+        setTimeout(() => { try { window.close(); } catch (e) {} }, 700);
+      },
+      () => {}
+    );
+    status('Camera is running. Point it at a passenger QR code.');
+  } catch (e) {
+    status(e && e.message ? e.message : String(e), true);
+  }
+}
+document.getElementById('start').addEventListener('click', startCamera);
+document.getElementById('stop').addEventListener('click', async () => {
+  await stopCamera();
+  status('Camera stopped.');
+});
+</script>
+</body>
+</html>
