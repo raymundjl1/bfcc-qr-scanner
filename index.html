@@ -66,7 +66,7 @@ async function startCamera() {
           return;
         }
         // The organizer page validates this message's origin and this exact popup window.
-        window.opener.postMessage({ type: 'BFCC_QR_TOKEN', token: decodedText }, window.location.origin);
+        window.opener.postMessage({ type: 'BFCC_QR_TOKEN', token: decodedText }, '*');
         status('QR scanned. Returning token to the organizer dashboard…');
         setTimeout(() => { try { window.close(); } catch (e) {} }, 700);
       },
