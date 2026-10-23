@@ -67,8 +67,7 @@ async function startCamera() {
         }
         // The organizer page validates this message's origin and this exact popup window.
         window.opener.postMessage({ type: 'BFCC_QR_TOKEN', token: decodedText }, '*');
-        status('QR scanned. Returning token to the organizer dashboard…');
-        setTimeout(() => { try { window.close(); } catch (e) {} }, 700);
+        status('QR scanned. Waiting for organizer confirmation. Tap OK on the dashboard to scan the next passenger.');
       },
       () => {}
     );
@@ -77,6 +76,12 @@ async function startCamera() {
     status(e && e.message ? e.message : String(e), true);
   }
 }
+window.addEventListener('message', async event => {
+  if (!window.opener || event.source !== window.opener) return;
+  if (!event.data || event.data.type !== 'BFCC_RESUME_SCANNER') return;
+  status('Ready for the next passenger QR code. Restarting camera…');
+  await startCamera();
+});
 document.getElementById('start').addEventListener('click', startCamera);
 document.getElementById('stop').addEventListener('click', async () => {
   await stopCamera();
