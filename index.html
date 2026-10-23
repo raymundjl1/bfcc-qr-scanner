@@ -17,6 +17,12 @@ button.secondary{background:#e8edf4;color:#073b7a}
 #reader{width:100%;max-width:520px;margin:12px auto}
 #status{padding:12px;border-radius:9px;background:#fff6dd;color:#805400;overflow-wrap:anywhere}
 .small{font-size:.9rem;color:#667085}
+#resultPanel{display:none;margin-top:14px;padding:16px;border:1px solid #b7e4c7;border-radius:12px;background:#e9f8ee;color:#17663a}
+#resultPanel.error{border-color:#fecaca;background:#fff0ef;color:#a11d1d}
+#resultTitle{font-weight:700;font-size:1.1rem;margin:0 0 10px}
+#resultDetails{line-height:1.55;overflow-wrap:anywhere}
+#resultOk{width:100%;margin-top:14px}
+
 </style>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
@@ -31,12 +37,22 @@ button.secondary{background:#e8edf4;color:#073b7a}
   <button id="stop" class="secondary">Stop camera</button>
   <div id="reader"></div>
   <div id="status" role="status">Ready. Tap Start camera to begin.</div>
-  <p class="small">This page only reads the QR token. Boarding is recorded by the BFCC Apps Script dashboard.</p>
+  <div id="resultPanel" role="dialog" aria-live="polite">
+    <div id="resultTitle">Boarding QR scanned successfully!</div>
+    <div id="resultDetails"></div>
+    <button id="resultOk" type="button">OK</button>
+  </div>
+  <p class="small">This page reads the QR token. Boarding is validated and recorded by the BFCC Apps Script dashboard.</p>
 </section>
 <script>
 let scanner = null;
 let handlingScan = false;
+let waitingForAcknowledgement = false;
 const statusEl = document.getElementById('status');
+const resultPanel = document.getElementById('resultPanel');
+const resultTitle = document.getElementById('resultTitle');
+const resultDetails = document.getElementById('resultDetails');
+const resultOk = document.getElementById('resultOk');
 function status(message, isError=false) {
   statusEl.textContent = message;
   statusEl.style.background = isError ? '#fff0ef' : '#e9f8ee';
@@ -66,8 +82,9 @@ async function startCamera() {
           return;
         }
         // The organizer page validates this message's origin and this exact popup window.
+        waitingForAcknowledgement = true;
+        status('QR scanned. Waiting for boarding validation…');
         window.opener.postMessage({ type: 'BFCC_QR_TOKEN', token: decodedText }, '*');
-        status('QR scanned. Waiting for organizer confirmation. Tap OK on the dashboard to scan the next passenger.');
       },
       () => {}
     );
@@ -78,9 +95,46 @@ async function startCamera() {
 }
 window.addEventListener('message', async event => {
   if (!window.opener || event.source !== window.opener) return;
-  if (!event.data || event.data.type !== 'BFCC_RESUME_SCANNER') return;
-  status('Ready for the next passenger QR code. Restarting camera…');
-  await startCamera();
+  if (!event.data) return;
+
+  if (event.data.type === 'BFCC_SCAN_RESULT') {
+    await stopCamera();
+    waitingForAcknowledgement = true;
+    resultPanel.style.display = 'block';
+    const success = !!event.data.success;
+    resultPanel.classList.toggle('error', !success);
+    resultTitle.textContent = success
+      ? 'Boarding QR scanned successfully!'
+      : 'QR scan was not confirmed';
+    const guest = event.data.guest || {};
+    const details = [];
+    if (guest.name) details.push('Passenger: ' + guest.name);
+    if (guest.bus !== undefined && guest.bus !== '') details.push('Bus: ' + guest.bus);
+    if (guest.seat !== undefined && guest.seat !== '') details.push('Seat: ' + guest.seat);
+    if (!details.length) details.push(event.data.message || (success ? 'Boarding confirmed.' : 'Please verify the QR and try again.'));
+    resultDetails.textContent = details.join(' · ') + (success
+      ? '\\n\\nClick OK to refresh the passenger overview and return to the camera.'
+      : '\\n\\nClick OK to try scanning again.');
+    status(success ? 'Boarding confirmed. Tap OK here for the next passenger.' : 'Boarding was not confirmed. Tap OK to retry.', !success);
+    resultOk.focus();
+    return;
+  }
+
+  if (event.data.type === 'BFCC_RESUME_SCANNER') {
+    resultPanel.style.display = 'none';
+    waitingForAcknowledgement = false;
+    status('Ready for the next passenger QR code. Restarting camera…');
+    await startCamera();
+  }
+});
+resultOk.addEventListener('click', async () => {
+  resultPanel.style.display = 'none';
+  if (!window.opener || window.opener.closed) {
+    status('Organizer dashboard is no longer connected. Reopen the scanner from the dashboard.', true);
+    return;
+  }
+  status('Refreshing organizer data and preparing the next scan…');
+  window.opener.postMessage({ type: 'BFCC_SCAN_ACK' }, '*');
 });
 document.getElementById('start').addEventListener('click', startCamera);
 document.getElementById('stop').addEventListener('click', async () => {
