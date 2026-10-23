@@ -19,8 +19,9 @@ button.secondary{background:#e8edf4;color:#073b7a}
 .small{font-size:.9rem;color:#667085}
 #resultPanel{display:none;margin-top:14px;padding:16px;border:1px solid #b7e4c7;border-radius:12px;background:#e9f8ee;color:#17663a}
 #resultPanel.error{border-color:#fecaca;background:#fff0ef;color:#a11d1d}
+#resultPanel.duplicate{border-color:#f4d28a;background:#fff7e6;color:#805400}
 #resultTitle{font-weight:700;font-size:1.1rem;margin:0 0 10px}
-#resultDetails{line-height:1.55;overflow-wrap:anywhere}
+#resultDetails{line-height:1.55;overflow-wrap:anywhere;white-space:pre-line}
 #resultOk{width:100%;margin-top:14px}
 
 </style>
@@ -102,20 +103,55 @@ window.addEventListener('message', async event => {
     waitingForAcknowledgement = true;
     resultPanel.style.display = 'block';
     const success = !!event.data.success;
-    resultPanel.classList.toggle('error', !success);
-    resultTitle.textContent = success
-      ? 'Boarding QR scanned successfully!'
-      : 'QR scan was not confirmed';
+    const resultStatus = String(event.data.status || (success ? 'BOARDED' : 'ERROR')).toUpperCase();
+    const duplicate = ['DUPLICATE', 'ALREADY_BOARDED', 'ALREADY BOARDED', 'BOARDED_ALREADY'].includes(resultStatus) || /already\s+boarded/i.test(String(event.data.message || ''));
+    const invalid = resultStatus === 'INVALID';
+    const notConfirmed = resultStatus === 'NOT_CONFIRMED';
+
+    resultPanel.classList.toggle('error', !success && !duplicate && !notConfirmed);
+    resultPanel.classList.toggle('duplicate', duplicate || notConfirmed);
+    if (success) {
+      resultTitle.textContent = 'Boarding QR scanned successfully!';
+    } else if (duplicate) {
+      resultTitle.textContent = 'Passenger already boarded';
+    } else if (invalid) {
+      resultTitle.textContent = 'QR code not recognized';
+    } else if (notConfirmed) {
+      resultTitle.textContent = 'Passenger check-in is not confirmed';
+    } else {
+      resultTitle.textContent = 'Unable to validate QR code';
+    }
+
     const guest = event.data.guest || {};
     const details = [];
     if (guest.name) details.push('Passenger: ' + guest.name);
     if (guest.bus !== undefined && guest.bus !== '') details.push('Bus: ' + guest.bus);
     if (guest.seat !== undefined && guest.seat !== '') details.push('Seat: ' + guest.seat);
-    if (!details.length) details.push(event.data.message || (success ? 'Boarding confirmed.' : 'Please verify the QR and try again.'));
-    resultDetails.textContent = details.join(' · ') + (success
-      ? '\\n\\nClick OK to refresh the passenger overview and return to the camera.'
-      : '\\n\\nClick OK to try scanning again.');
-    status(success ? 'Boarding confirmed. Tap OK here for the next passenger.' : 'Boarding was not confirmed. Tap OK to retry.', !success);
+
+    if (success) {
+      details.push('Click OK to refresh the passenger overview and return to the camera.');
+    } else if (duplicate) {
+      details.push('This passenger is already marked as boarded. Click OK to scan the next passenger.');
+    } else if (invalid) {
+      details.push('This QR code does not match any boarding-pass check-in information. Please scan a valid BFCC boarding pass.');
+    } else if (notConfirmed) {
+      details.push('The QR code belongs to a guest whose check-in is not confirmed. Please verify their check-in before boarding.');
+    } else {
+      details.push(event.data.message || 'The QR code could not be validated. Please try again or contact the organizer.');
+    }
+
+    resultDetails.textContent = details.join('\n');
+    if (success) {
+      status('Boarding confirmed. Tap OK here for the next passenger.');
+    } else if (duplicate) {
+      status('Passenger already boarded. Tap OK to continue.');
+    } else if (invalid) {
+      status('QR code does not match any boarding-pass check-in information.', true);
+    } else if (notConfirmed) {
+      status('Passenger check-in is not confirmed. Tap OK to continue.', true);
+    } else {
+      status('Could not validate this QR code. Tap OK to retry.', true);
+    }
     resultOk.focus();
     return;
   }
