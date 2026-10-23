@@ -76,7 +76,8 @@ async function startCamera() {
       async decodedText => {
         if (handlingScan) return;
         handlingScan = true;
-        await stopCamera();
+        // Keep the camera stream running while the organizer validates this token.
+        // handlingScan prevents duplicate detections until the organizer confirms.
         if (!window.opener || window.opener.closed) {
           status('QR read, but the organizer dashboard window is not connected. Close this page and open the scanner again from the dashboard.', true);
           handlingScan = false;
@@ -84,7 +85,7 @@ async function startCamera() {
         }
         // The organizer page validates this message's origin and this exact popup window.
         waitingForAcknowledgement = true;
-        status('QR scanned. Waiting for boarding validation…');
+        status('QR scanned — verifying boarding…');
         window.opener.postMessage({ type: 'BFCC_QR_TOKEN', token: decodedText }, '*');
       },
       () => {}
@@ -99,7 +100,7 @@ window.addEventListener('message', async event => {
   if (!event.data) return;
 
   if (event.data.type === 'BFCC_SCAN_RESULT') {
-    await stopCamera();
+    // Keep the existing camera stream alive; handlingScan blocks further reads.
     waitingForAcknowledgement = true;
     resultPanel.style.display = 'block';
     const success = !!event.data.success;
@@ -159,8 +160,13 @@ window.addEventListener('message', async event => {
   if (event.data.type === 'BFCC_RESUME_SCANNER') {
     resultPanel.style.display = 'none';
     waitingForAcknowledgement = false;
-    status('Ready for the next passenger QR code. Restarting camera…');
-    await startCamera();
+    if (scanner && scanner.isScanning) {
+      handlingScan = false;
+      status('Ready for the next passenger QR code.');
+    } else {
+      status('Preparing the camera for the next passenger…');
+      await startCamera();
+    }
   }
 });
 resultOk.addEventListener('click', async () => {
